@@ -1,0 +1,103 @@
+rm(list=ls())
+library(stable)
+h=40;n1=1040;alpha=1.75
+#alpha=1.5
+alpha0=0.6;beta0=0.05
+alpha2=0.3;beta2=0.1
+omega=0.006
+#alpha = 0.0497, beta = 0.9325, skew = -0.9516, shape = 1.9252
+#Gamma_1
+#angle1=c(pi/3,pi/4,5*pi/3);lambda=c(1/2,1/2,1/2)
+#Gamma_2
+angle1=c(pi/3,pi/4,5*pi/3);lambda=c(1,1,1)
+#Gamma_3
+angle1=c(pi/4,2*pi/3,4*pi/3);lambda=c(1,1,1/2)
+#Gamma_4
+angle1=c(pi/4,2*pi/3,4*pi/3);lambda=c(1/3,1,1)
+
+dist=mvstable.discrete.spec.meas2d(alpha,angle1,
+lambda,beta=c(1,1,1),delta=c(0,0),param=1)
+it=1000;mae1=0;mae2=0;rmse1=0;rmse2=0;mape1=0;mape2=0;Qf1=0;Qf2=0
+volabs1=0;volabs2=0;volsq1=0;volsq2=0
+mat1=matrix(0,nrow=it,ncol=h);mat2=matrix(0,nrow=it,ncol=h)
+for (k in 1:it){
+ep=rmvstable(dist,n1)
+mu=matrix(c(mean(ep[1,]),mean(ep[2,])),nrow=2,ncol=1,byrow=T)
+st1=stable.fit.mle(ep[1,])
+st2=stable.fit.mle(ep[2,])
+sig1=st1[3];sig2=st2[3]
+res1=(ep[1,]-mu[1,1])/sig1
+res2=(ep[2,]-mu[2,1])/sig2
+
+sigma0=0;sigma2=0
+sigma0[1]=omega+0*(alpha0+beta0*abs(0))
+sigma2[1]=omega+0*(alpha2+beta2*abs(0))
+for (i in 2:n1){
+sigma0[i]=omega+sigma0[i-1]*(alpha0+beta0*abs(res1[i-1]))
+sigma2[i]=omega+sigma2[i-1]*(alpha2+beta2*abs(res2[i-1]))
+}
+d1=sigma0*res1
+d2=sigma2*res2
+
+epsilon1<-sigma0
+par1<-c(omega,beta0,alpha0,1,alpha)
+
+epsilon2<-sigma2
+par2<-c(omega,beta2,alpha2,1,alpha)
+
+n=min(length(res1),length(res2))
+c2=res1[1:n];c1=res2[1:n]
+m1<-matrix(c(c1,c2),nrow=2, byrow=T)
+fit1<-mvstable.fit(m1, nspectral=40, method1d=1, method2d=2, param=1)
+spec1<-fit1$lambda
+angle1<-fit1$angle
+alpha1<-fit1$alpha
+eta<-0;sigma<-0;delta<-0;beta=0;q11=0;fx=0;Dx=0
+for (i in 1:length(spec1)){
+eta[i]<-abs(cos(angle1[i]))^(alpha1-1)*sign(cos(angle1[i]))*sin(angle1[i])*spec1[i]
+sigma[i]<-abs(sin(angle1[i]))^alpha1*spec1[i]
+delta[i]<-abs(cos(angle1[i]))^(alpha1-1)*sin(angle1[i])*spec1[i]
+beta[i]<-abs(sin(angle1[i]))^alpha1*sign(sin(angle1[i]))*spec1[i]
+}
+q=tan(pi*alpha1/2)
+sigma1=1
+beta1=sum(beta)/sigma1
+delta1=sum(delta)/sum(sigma)
+n11=n1-1-h;d1hat=0;epsilon11=0;epsilon0=0
+epsilon1[n11+1]=par1[1]+par1[3]*epsilon1[n11]+par1[2]*abs(d1[n11])
+epsilon0[1]=par1[1]+par1[3]*epsilon1[n11]+par1[2]*abs(d1[n11])
+for (j in 1:h){
+
+integrand <- function(x) {exp(-sigma1*x^alpha1)*sin(x*res2[n11+j]-q*beta1*sigma1*x^alpha1)}
+int1=integrate(integrand, lower = 0, upper = Inf,subdivisions=2000)
+Dx[j]=int1$value
+
+integrand <- function(x) {1/pi*exp(-sigma1*x^alpha1)*cos(x*res2[n11+j]-q*beta1*sigma1*x^alpha1)}
+int2=integrate(integrand, lower = 0, upper = Inf,subdivisions=2000)
+fx[j]=int2$value
+
+q11[j]=q*(delta1-beta1*sum(eta)/sigma1)/(1+q^2*beta1^2)*(q*beta1*res2[n11+j]+(1-res2[n11+j]*Dx[j])/(pi*fx[j]))
+if (fx[j]<0.001) d1hat[j]=0 else d1hat[j]=epsilon1[n11+j]*(sum(eta)/sum(sigma)*res2[n11+j]+q11[j])
+epsilon1[n11+j+1]=par1[1]+par1[3]*epsilon1[n11+j]+par1[2]*abs(d1hat[j])
+epsilon0[j+1]=par1[1]+par1[3]*epsilon0[j]+par1[2]*abs(0)
+epsilon11[j]=par1[1]+par1[3]*epsilon1[n11+j-1]+par1[2]*abs(d1[n11+j-1])
+}
+mat1[k,]=d1hat-d1[(n11+1):(n1-1)]
+mat2[k,]=-d1[(n11+1):(n1-1)]
+}
+#######################
+#forecasting accuracy measures
+#MAD
+for (j in 1:h){
+mae1[j]=mean(abs(mat1[,j])^1)
+mae2[j]=mean(abs(mat2[,j])^1)
+#RMSE
+rmse1[j]=sqrt(mean(abs(mat1[,j])^2))
+rmse2[j]=sqrt(mean(abs(mat2[,j])^2))
+}
+min1=min(mae1,mae2)
+max1=max(mae1,mae2)
+plot(mae1,type="l",ylab="MAE",main="Gamma_1, alpha=1.75",cex.main=1.5,xlab="Number of steps ahead",ylim=c(min1,max1),cex.lab=1.5)
+lines(mae2,lty=2)
+legend(1,.0286, legend=c("With auxiliary process","Without auxiliary process"),
+lty=1:2, cex=1.1)
