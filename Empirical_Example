@@ -1,0 +1,80 @@
+rm(list=ls())
+library(stable);library(GEVStableGarch)
+h=40
+x<-read.csv("AAPL.csv");com1<-x[,7]
+n1<-length(com1)
+d1<-0
+for (i in 1:(n1-1)){
+d1[i]<-log(com1[i+1]/com1[i])
+}
+#x<-read.csv("NFLX.csv");com11<-x[,7]
+#x<-read.csv("FB.csv");com11<-x[,7]
+#x<-read.csv("GOOG.csv");com11<-x[,7]
+#x<-read.csv("AMZN.csv");com11<-x[,7]
+n2<-length(com11)
+d2<-0
+for (i in 1:(n2-1)){
+d2[i]<-log(com11[i+1]/com11[i])
+}
+n11=n1-1-h
+d1hat=0;epsilon11=0;epsilon0=0;epsilon1h=0
+
+ks1=0;ks2=0
+for (j in 1:h){
+fit1<-gsFit(data=d1[1:(n11+j-1)],formula=~garch(1,1),cond.dist ="stableS1",algorithm="sqp.restriction",include.mean=T)
+epsilon1<-fit1@sigma.t
+par1<-fit1@fit$par
+res1<-(d1[1:(n11+j-1)]-par1[1])/epsilon1
+ks1[j]=ks.test(res1,"pstable",par1[4+2],par1[4+1],1,0,1)$p
+
+fit2<-gsFit(data=d2[1:(n11+j)],formula=~garch(1,1),cond.dist ="stableS1",algorithm="sqp.restriction",include.mean=T)
+epsilon2<-fit2@sigma.t
+par2<-fit2@fit$par
+res2<-(d2[1:(n11+j)]-par2[1])/epsilon2
+ks2[j]=ks.test(res2,"pstable",par2[4+2],par2[4+1],1,0,1)$p
+lr2=length(res2)
+
+n=min(length(res1),length(res2[1:(lr2-1)]))
+c1=res1[1:n];c2=res2[1:n]
+m1<-matrix(c(c2,c1),nrow=2, byrow=T)
+fit1<-mvstable.fit(m1, nspectral=40, method1d=1, method2d=2, param=1)
+spec1<-fit1$lambda
+angle1<-fit1$angle
+alpha1<-fit1$alpha
+eta<-0;sigma<-0;delta<-0;beta=0
+for (i in 1:40){
+eta[i]<-abs(cos(angle1[i]))^(alpha1-1)*sign(cos(angle1[i]))*sin(angle1[i])*spec1[i]
+delta[i]<-abs(cos(angle1[i]))^(alpha1-1)*sin(angle1[i])*spec1[i]
+}
+q=tan(pi*alpha1/2);sigma1=1
+beta1=par2[5]
+delta1=sum(delta)/1
+
+integrand <- function(x) {exp(-sigma1*x^alpha1)*sin(x*res2[lr2+0]-q*beta1*sigma1*x^alpha1)}
+int1=integrate(integrand, lower = 0, upper = Inf,subdivisions=2000)
+Dx=int1$value
+
+integrand <- function(x) {1/pi*exp(-sigma1*x^alpha1)*cos(x*res2[lr2+0]-q*beta1*sigma1*x^alpha1)}
+int2=integrate(integrand, lower = 0, upper = Inf,subdivisions=2000)
+fx=int2$value
+
+lr1=length(res1)
+epsilon1h[j]=par1[2]+par1[4]*epsilon1[lr1]+par1[3]*abs(d1[lr1])
+epsilon0[j]=par1[2]+par1[4]*epsilon1[lr1]+par1[3]*abs(d1[lr1])
+
+q11=q*(delta1-beta1*sum(eta))/(1+q^2*beta1^2)*(q*beta1*res2[lr2]+(1-res2[lr2]*Dx)/(pi*fx))
+if (fx<0.001) d1hat[j]=0 else d1hat[j]=par1[1]+epsilon1h[j]*(sum(eta)/sigma1*res2[lr2]+q11)
+}
+
+#######################
+#forecasting accuracy measures
+#MAD
+mean(abs(d1hat-d1[(n11+1):(n1-1)])^1)
+mean(abs(d1[(n11+1):(n1-1)])^1)
+#RMSE
+sqrt(mean(abs(d1hat-d1[(n11+1):(n1-1)])^2))
+sqrt(mean(abs(d1[(n11+1):(n1-1)])^2))
+min1=min(d1[(n11+1):(n1-1)],d1hat)
+max1=max(d1[(n11+1):(n1-1)],d1hat)
+plot(d1hat,type="l",main="Auxiliary: Netflix",cex.lab=1.5,xlab="",cex.main=1.5,ylim=c(min1,max1),ylab="Apple")
+lines(d1[(n11+1):(n1-1)],lty=2)
